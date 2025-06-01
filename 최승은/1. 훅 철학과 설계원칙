@@ -1,73 +1,111 @@
-## 1. 리액트 훅의 기본 철학과 설계 원칙
+## 1. 리액트 훅의 탄생 배경과 철학
 
-**1.1 도입 배경 (클래스 컴포넌트의 한계 극복)**  
-훅은 클래스 컴포넌트의 **복잡한 생명주기 메서드**와 **this 바인딩 문제**, **로직 재사용의 어려움**을 해결하기 위해 도입되었습니다[6]. 함수형 컴포넌트에서도 상태 관리를 가능하게 함으로써 **코드의 간결성**과 **로직의 캡슐화**를 달성했습니다.
+### 1-1. 훅은 왜 등장했는가?
 
-**1.2 상태 머신으로서의 특성**  
-훅은 단순한 함수 호출이 아니라 **렌더링 컨텍스트에 연결된 상태 머신**으로 작동합니다. 각 훅 호출은 리액트의 내부 디스패처 시스템과 연결되어, 컴포넌트 인스턴스별로 상태를 추적합니다[4][7].
+* 클래스 컴포넌트는 다음과 같은 **구조적 한계**를 갖고 있었음:
 
-**1.3 호출 규칙의 핵심 원리**  
-- **Top-level only**: 반복문/조건문에서 훅 사용 시 호출 순서가 변경되어 **훅 인덱스 매칭 실패** 발생[5][2]  
-- **순서 의존성**: 리액트는 훅을 **연결 리스트 구조**로 관리하며, 렌더링마다 동일한 순서 보장이 필수적[5]
+  * 재사용 어려움: 로직 재사용이 `HOC`, `render props`로 복잡
+  * this 바인딩: 문법 이해와 오류 방지 비용 증가
+  * 긴 컴포넌트 수명 주기: `componentDidMount`, `componentDidUpdate`, `componentWillUnmount`가 단일 로직에 얽힘
 
-## 2. 훅의 작동 원리와 메모리 관리
+-> **함수형 컴포넌트에서 상태와 생명주기를 관리할 수 있게 만든 것이 Hook의 본질적인 목적**
 
-**2.1 훅 인덱스 배열 시스템**  
-  
-리액트는 컴포넌트별로 **훅 호출 순서를 기록**하는 배열을 유지합니다. 첫 렌더링 시 생성된 인덱스는 모든 후속 렌더링에서 동일한 순서로 재사용됩니다[5][7].
+### 1-2. 훅의 철학: **함수형 UI에 상태와 부수효과를 연결하는 인터페이스**
 
-**2.2 useState 내부 구현 체계**  
-```js
-let hooks = [];
-let index = 0;
+> 훅은 단순한 유틸 함수가 아니라, **React의 렌더링 컨텍스트에 깊이 연결된 상태 머신**
 
-function useState(initial) {
-  const localIndex = index++;
-  if (!hooks[localIndex]) {
-    hooks[localIndex] = initial;
+* **useState, useEffect, useRef, useReducer 등**은 내부적으로 렌더링 시스템과 밀접하게 연결되어 있음
+* 이 철학은 다음의 **규칙적인 사용 패턴**을 요구함
+
+## 2. 훅의 설계 원칙과 사용 규칙
+
+### 2-1. **훅 사용의 두 가지 규칙**
+
+| 규칙                         | 설명                                                 |
+| -------------------------- | -------------------------------------------------- |
+| 1. Top-level only          | 훅은 **컴포넌트의 최상위에서만 호출**해야 함. 조건문, 루프, 중첩 함수에서 호출 불가 |
+| 2. Only in React Functions | 훅은 **React 함수형 컴포넌트** 또는 **커스텀 훅** 내에서만 호출 가능      |
+
+이 규칙을 어기면 React가 훅의 순서를 보장할 수 없어 동기화 오류 발생 위험 있음.
+
+### 2-2. 예외 케이스
+
+```tsx
+// 조건문 안의 useState: 절대 금지
+if (someCondition) {
+  const [count, setCount] = useState(0); // 훅 인덱스 어긋남
+}
+```
+
+## 3. 훅의 작동 원리: 내부 메커니즘
+
+### 3-1. 렌더링과 훅 저장 방식
+
+* 리액트는 각 컴포넌트마다 **훅 인덱스를 기반으로 한 훅 목록을 배열 형태로 관리**함
+* 예: `const [a] = useState()`, `const [b] = useState()` → 순서대로 인덱스 0, 1에 저장됨
+
+```ts
+// 내부 개념도
+const hookStates = [state1, state2, ...]; // useState 등 훅 값 저장
+let hookIndex = 0;
+```
+
+* 렌더링 시마다 hookIndex는 0부터 시작하며, **훅을 호출할 때마다 순차적으로 hookStates에 접근**
+
+➡️ 순서 기반 매핑이기 때문에 **조건문 안에서 훅을 호출하면 순서가 바뀌어 동작이 깨짐**
+
+---
+
+### 3-2. useState의 내부 구현 개요
+
+```ts
+// 간단화된 의사 코드
+function useState(initialValue) {
+  const currentIndex = hookIndex;
+  if (!hookStates[currentIndex]) {
+    hookStates[currentIndex] = initialValue;
   }
-  
+
   const setState = (newValue) => {
-    hooks[localIndex] = newValue;
-    renderComponent();
-  };
-  
-  return [hooks[localIndex], setState];
+    hookStates[currentIndex] = newValue;
+    render(); // 컴포넌트 리렌더 트리거
+  }
+
+  hookIndex++;
+  return [hookStates[currentIndex], setState];
 }
 ```
-*(간소화된 구현 예시)[7]*  
-- 상태 값은 **컴포넌트 외부 배열**에 저장
-- setState 호출 시 배열 값 갱신 후 리렌더링 트리거
 
-**2.3 렌더링 사이클과 클로저**  
-1. 초기 렌더링: 훅 배열 초기화 및 클로저 생성  
-2. 상태 변경: setState → 리렌더링 시작  
-3. 재렌더링: **동일한 인덱스 순서**로 훅 재사용[5][7]  
-4. 가비지 컬렉션: 컴포넌트 언마운트 시 배열 정리
+* `hookStates`는 **컴포넌트 단위로 유지되는 배열**
+* `hookIndex`는 렌더링 중 전역적으로 증가되며 각 훅을 유일하게 구분
 
-## 📌 면접 핵심 질문: "왜 조건문에서 훅을 사용하면 안 되나요?"
+---
 
-```jsx
-// 위험한 예시
-if (condition) {
-  const [value] = useState(1); // 조건에 따라 호출 여부 변경
-}
-const [count] = useState(0); // 인덱스 순서 불일치 발생
-```
-- **훅 인덱스 배열**이 렌더링 간 일관성을 잃으면:  
-  → 이전 상태를 잘못된 훅에 매핑  
-  → 미묘한 버그 발생 (예: count가 value 상태를 참조)[5][2]  
-- **순서 보장**이 훅 시스템의 핵심 동작 원리[5][7]
+### 3-3. 클로저와 훅의 연결 구조
 
-이 메커니즘은 **useReducer, useEffect** 등 모든 훅에 동일하게 적용됩니다. 리액트 팀은 이 설계를 통해 함수형 컴포넌트의 **예측 가능성**과 **디버깅 용이성**을 확보했습니다[4][6].
+* 훅 내부에서 반환하는 `setState`는 **렌더링 시점의 상태를 기억하는 클로저** 형태
+* 이 클로저가 `React`의 렌더링 컨텍스트와 이어져 있기 때문에 외부 변수처럼 보이더라도 별도로 감지됨
 
-출처
-[1] 리액트 hook 총 정리 - velog https://velog.io/@minw0_o/%EB%A6%AC%EC%95%A1%ED%8A%B8-hook-%EC%B4%9D-%EC%A0%95%EB%A6%AC
-[2] [React] Hook의 동작 원리 이해하기 - INGG. https://ingg.dev/hook-work/
-[3] 리엑트 훅 왜 쓰고 어떻게 되어있나요? - velog https://velog.io/@jay/how-react-hook-works
-[4] Hook의 개요 - React https://ko.legacy.reactjs.org/docs/hooks-intro.html
-[5] Hooks 사용 규칙 - 내가 보려고 만든 개발 공부 일지 - 티스토리 https://kwangsunny.tistory.com/10
-[6] [React] Hooks - 기록장 - 티스토리 https://sung-98.tistory.com/121
-[7] [React] React Hook 동작 원리(useState,useEffect) - 기록들 - 티스토리 https://choi-records.tistory.com/entry/React-React-Hook-%EB%8F%99%EC%9E%91-%EC%9B%90%EB%A6%ACuseStateuseEffect
-[8] [React] React Hooks가 왜 만들어진걸까 - velog https://velog.io/@pakxe/React-React-Hooks%EA%B0%80-%EC%99%9C-%EB%A7%8C%EB%93%A4%EC%96%B4%EC%A7%84%EA%B1%B8%EA%B9%8C
-[9] React) Nomad 실전형 리액트 훅(Custom) 내용 정리해보기 https://data-newbie.tistory.com/985
+---
+
+## 면접 질문 대비 포인트
+
+### Q1. "왜 useState는 조건문 안에서 쓰면 안 되나요?"
+
+**답변 예시 (4줄 서술형)**
+useState 등 훅은 호출 순서에 따라 React가 내부 상태 배열과 연결합니다. 조건문 안에서 훅을 호출하면 렌더링마다 훅의 순서가 달라져 오류가 발생합니다. React는 hookIndex라는 인덱스를 통해 상태를 식별하기 때문에, 순서를 유지하는 것이 핵심입니다. 따라서 훅은 항상 컴포넌트의 최상단에서만 호출되어야 합니다.
+
+**추가 설명**
+
+* 이 규칙을 지키지 않으면 "Rendered more hooks than during the previous render" 오류 발생 가능
+* React DevTools에서도 훅 순서가 어긋나면 추적 불가능
+
+## 정리 요약
+
+| 항목    | 내용                                        |
+| ----- | ----------------------------------------- |
+| 훅의 목적 | 클래스 컴포넌트의 복잡성과 재사용성 한계를 해결                |
+| 철학    | 상태와 부수효과를 함수형 UI에 연결하는 인터페이스              |
+| 핵심 원리 | 훅은 렌더링 컨텍스트에 연결된 순차적 상태 저장 시스템            |
+| 내부 구조 | 훅 배열 (hookStates) + 훅 인덱스 (hookIndex)로 동작 |
+| 주의점   | 훅은 항상 같은 순서로 호출되어야 함 (조건문 사용 금지)          |
