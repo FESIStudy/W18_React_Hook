@@ -1,0 +1,73 @@
+## 1. 리액트 훅의 기본 철학과 설계 원칙
+
+**1.1 도입 배경 (클래스 컴포넌트의 한계 극복)**  
+훅은 클래스 컴포넌트의 **복잡한 생명주기 메서드**와 **this 바인딩 문제**, **로직 재사용의 어려움**을 해결하기 위해 도입되었습니다[6]. 함수형 컴포넌트에서도 상태 관리를 가능하게 함으로써 **코드의 간결성**과 **로직의 캡슐화**를 달성했습니다.
+
+**1.2 상태 머신으로서의 특성**  
+훅은 단순한 함수 호출이 아니라 **렌더링 컨텍스트에 연결된 상태 머신**으로 작동합니다. 각 훅 호출은 리액트의 내부 디스패처 시스템과 연결되어, 컴포넌트 인스턴스별로 상태를 추적합니다[4][7].
+
+**1.3 호출 규칙의 핵심 원리**  
+- **Top-level only**: 반복문/조건문에서 훅 사용 시 호출 순서가 변경되어 **훅 인덱스 매칭 실패** 발생[5][2]  
+- **순서 의존성**: 리액트는 훅을 **연결 리스트 구조**로 관리하며, 렌더링마다 동일한 순서 보장이 필수적[5]
+
+## 2. 훅의 작동 원리와 메모리 관리
+
+**2.1 훅 인덱스 배열 시스템**  
+  
+리액트는 컴포넌트별로 **훅 호출 순서를 기록**하는 배열을 유지합니다. 첫 렌더링 시 생성된 인덱스는 모든 후속 렌더링에서 동일한 순서로 재사용됩니다[5][7].
+
+**2.2 useState 내부 구현 체계**  
+```js
+let hooks = [];
+let index = 0;
+
+function useState(initial) {
+  const localIndex = index++;
+  if (!hooks[localIndex]) {
+    hooks[localIndex] = initial;
+  }
+  
+  const setState = (newValue) => {
+    hooks[localIndex] = newValue;
+    renderComponent();
+  };
+  
+  return [hooks[localIndex], setState];
+}
+```
+*(간소화된 구현 예시)[7]*  
+- 상태 값은 **컴포넌트 외부 배열**에 저장
+- setState 호출 시 배열 값 갱신 후 리렌더링 트리거
+
+**2.3 렌더링 사이클과 클로저**  
+1. 초기 렌더링: 훅 배열 초기화 및 클로저 생성  
+2. 상태 변경: setState → 리렌더링 시작  
+3. 재렌더링: **동일한 인덱스 순서**로 훅 재사용[5][7]  
+4. 가비지 컬렉션: 컴포넌트 언마운트 시 배열 정리
+
+## 📌 면접 핵심 질문: "왜 조건문에서 훅을 사용하면 안 되나요?"
+
+```jsx
+// 위험한 예시
+if (condition) {
+  const [value] = useState(1); // 조건에 따라 호출 여부 변경
+}
+const [count] = useState(0); // 인덱스 순서 불일치 발생
+```
+- **훅 인덱스 배열**이 렌더링 간 일관성을 잃으면:  
+  → 이전 상태를 잘못된 훅에 매핑  
+  → 미묘한 버그 발생 (예: count가 value 상태를 참조)[5][2]  
+- **순서 보장**이 훅 시스템의 핵심 동작 원리[5][7]
+
+이 메커니즘은 **useReducer, useEffect** 등 모든 훅에 동일하게 적용됩니다. 리액트 팀은 이 설계를 통해 함수형 컴포넌트의 **예측 가능성**과 **디버깅 용이성**을 확보했습니다[4][6].
+
+출처
+[1] 리액트 hook 총 정리 - velog https://velog.io/@minw0_o/%EB%A6%AC%EC%95%A1%ED%8A%B8-hook-%EC%B4%9D-%EC%A0%95%EB%A6%AC
+[2] [React] Hook의 동작 원리 이해하기 - INGG. https://ingg.dev/hook-work/
+[3] 리엑트 훅 왜 쓰고 어떻게 되어있나요? - velog https://velog.io/@jay/how-react-hook-works
+[4] Hook의 개요 - React https://ko.legacy.reactjs.org/docs/hooks-intro.html
+[5] Hooks 사용 규칙 - 내가 보려고 만든 개발 공부 일지 - 티스토리 https://kwangsunny.tistory.com/10
+[6] [React] Hooks - 기록장 - 티스토리 https://sung-98.tistory.com/121
+[7] [React] React Hook 동작 원리(useState,useEffect) - 기록들 - 티스토리 https://choi-records.tistory.com/entry/React-React-Hook-%EB%8F%99%EC%9E%91-%EC%9B%90%EB%A6%ACuseStateuseEffect
+[8] [React] React Hooks가 왜 만들어진걸까 - velog https://velog.io/@pakxe/React-React-Hooks%EA%B0%80-%EC%99%9C-%EB%A7%8C%EB%93%A4%EC%96%B4%EC%A7%84%EA%B1%B8%EA%B9%8C
+[9] React) Nomad 실전형 리액트 훅(Custom) 내용 정리해보기 https://data-newbie.tistory.com/985
