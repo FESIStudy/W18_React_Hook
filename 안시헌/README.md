@@ -233,3 +233,71 @@ useEffect(() => {
   }
 }, [currentTabIndex, tabLabels]);
 ```
+
+## useRef 활용 예
+```ts
+import { useLayoutEffect, useRef } from 'react';
+
+import type { AllCosmosAccountAssets } from '@/types/accountAssets';
+import { ceil, gt, gte, times } from '@/utils/numbers';
+import { getCoinId } from '@/utils/queryParamGenerator';
+
+type CosmosFeeAsset = AllCosmosAccountAssets & {
+  gasRate: string[];
+};
+
+type UseAutoFeeCurrencySelectionOnInitProps = {
+  feeAssets: CosmosFeeAsset[];
+  isCustomFee: boolean;
+  currentFeeStepKey: number;
+  gas: string;
+  setFeeCoinId: (coinId: string) => void;
+  disableAutoSet?: boolean;
+};
+
+export function useAutoFeeCurrencySelectionOnInit({
+  feeAssets,
+  isCustomFee,
+  gas,
+  currentFeeStepKey,
+  disableAutoSet = false,
+  setFeeCoinId,
+}: UseAutoFeeCurrencySelectionOnInitProps) {
+  // NOTE 진짜 무조건 한번만 실행한다.
+  const hasRunRef = useRef(false);
+
+  // NOTE useState로 하니까 훅 쓰는쪽에서 리렌더링될때마다 호출되는 문제가 있더라고. 그니까 스테이트가 계속 리셋되는거지.
+  //   const [isOnceSet, setisOnceSet] = useState(false);
+
+  useLayoutEffect(() => {
+    // if (hasRunRef.current || disableAutoSet || isOnceSet) {
+    // if (disableAutoSet || isOnceSet) {
+    if (disableAutoSet || hasRunRef.current) {
+      return;
+    }
+    // hasRunRef.current = true;
+
+    const isMoreThanOneFeeOption = feeAssets.length > 1;
+    console.log('🚀 ~ useLayoutEffect ~ isMoreThanOneFeeOption:', isMoreThanOneFeeOption);
+    const isGasHas = gt(gas, '0');
+    console.log('🚀 ~ useLayoutEffect ~ gas:', gas);
+    console.log('🚀 ~ useLayoutEffect ~ isCustomFee:', isCustomFee);
+    console.log('🚀 ~ useLayoutEffect ~ feeAssets:', feeAssets);
+
+    if (!isCustomFee && isMoreThanOneFeeOption && isGasHas) {
+      for (const feeCurrency of feeAssets) {
+        const feeCurrencyBalance = feeCurrency.balance;
+        const feeAmount = ceil(times(gas, feeCurrency.gasRate[currentFeeStepKey]));
+
+        if (gte(feeCurrencyBalance, feeAmount)) {
+          setFeeCoinId(getCoinId(feeCurrency.asset));
+          //   setisOnceSet(true);
+          hasRunRef.current = true;
+          break; // 첫 번째 조건 만족 시 종료
+        }
+      }
+    }
+  }, [currentFeeStepKey, disableAutoSet, feeAssets, gas, isCustomFee, setFeeCoinId]);
+}
+
+```
